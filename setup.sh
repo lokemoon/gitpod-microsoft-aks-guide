@@ -4,8 +4,8 @@ set -eo pipefail
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 if [ ! -f "${DIR}/.env" ]; then
-    echo "Missing ${DIR}/.env configuration file."
-    exit 1;
+  echo "Missing ${DIR}/.env configuration file."
+  exit 1
 fi
 
 set -a
@@ -19,129 +19,129 @@ WORKSPACES_POOL="workspaces"
 K8S_NODE_VM_SIZE=${K8S_NODE_VM_SIZE:="Standard_D4_v3"}
 
 function check_prerequisites() {
-    if [ -z "${AZURE_SUBSCRIPTION_ID}" ]; then
-        echo "Missing AZURE_SUBSCRIPTION_ID environment variable."
-        exit 1;
-    fi
+  # if [ -z "${AZURE_SUBSCRIPTION_ID}" ]; then
+  #     echo "Missing AZURE_SUBSCRIPTION_ID environment variable."
+  #     exit 1;
+  # fi
 
-    if [ -z "${AZURE_TENANT_ID}" ]; then
-        echo "Missing AZURE_TENANT_ID environment variable."
-        exit 1;
-    fi
+  # if [ -z "${AZURE_TENANT_ID}" ]; then
+  #     echo "Missing AZURE_TENANT_ID environment variable."
+  #     exit 1;
+  # fi
 
-    if [ -z "${RESOURCE_GROUP}" ]; then
-        echo "Missing RESOURCE_GROUP environment variable."
-        exit 1;
-    fi
+  if [ -z "${RESOURCE_GROUP}" ]; then
+    echo "Missing RESOURCE_GROUP environment variable."
+    exit 1
+  fi
 
-    if [ -z "${CLUSTER_NAME}" ]; then
-        echo "Missing CLUSTER_NAME environment variable."
-        exit 1;
-    fi
+  if [ -z "${CLUSTER_NAME}" ]; then
+    echo "Missing CLUSTER_NAME environment variable."
+    exit 1
+  fi
 
-    if [ -z "${DOMAIN}" ]; then
-        echo "Missing DOMAIN environment variable."
-        exit 1;
-    fi
+  if [ -z "${DOMAIN}" ]; then
+    echo "Missing DOMAIN environment variable."
+    exit 1
+  fi
 
-    if [ -z "${LOCATION}" ]; then
-        echo "Missing LOCATION environment variable."
-        exit 1;
-    fi
+  if [ -z "${LOCATION}" ]; then
+    echo "Missing LOCATION environment variable."
+    exit 1
+  fi
 
-    if [ -z "${REGISTRY_NAME}" ]; then
-        echo "Missing REGISTRY_NAME environment variable."
-        exit 1;
-    fi
+  if [ -z "${REGISTRY_NAME}" ]; then
+    echo "Missing REGISTRY_NAME environment variable."
+    exit 1
+  fi
 }
 
 function install() {
-    check_prerequisites
+  check_prerequisites
 
-    echo "Updating helm repositories..."
-    helm repo add bitnami https://charts.bitnami.com/bitnami
-    helm repo add jetstack https://charts.jetstack.io
-    helm repo update
+  echo "Updating helm repositories..."
+  helm repo add bitnami https://charts.bitnami.com/bitnami
+  helm repo add jetstack https://charts.jetstack.io
+  helm repo update
 
-    echo "Installing..."
+  echo "Installing..."
 
-    login
+  login
 
-    # Everything will be installed to this resource group
-    if [ "$(az group show --name ${RESOURCE_GROUP} --query "name == '${RESOURCE_GROUP}'" || echo "empty")" == "true" ]; then
-      echo "Resource group exists..."
-    else
-      az group create \
-        --location "${LOCATION}" \
-        --name "${RESOURCE_GROUP}"
+  # Everything will be installed to this resource group
+  if [ "$(az group show --name ${RESOURCE_GROUP} --query "name == '${RESOURCE_GROUP}'" || echo "empty")" == "true" ]; then
+    echo "Resource group exists..."
+  else
+    az group create \
+      --location "${LOCATION}" \
+      --name "${RESOURCE_GROUP}"
+  fi
+
+  if [ "$(az aks show --name ${CLUSTER_NAME} --resource-group ${RESOURCE_GROUP} --query "name == '${CLUSTER_NAME}'" || echo "empty")" == "true" ]; then
+    echo "Kubernetes cluster exists..."
+  else
+    if [ -z "${AKS_VERSION}" ]; then
+      echo "Finding Kubernetes version"
+      AKS_VERSION=$(az aks get-versions \
+        --location northeurope \
+        --query "orchestrators[?contains(orchestratorVersion, '1.24.')].orchestratorVersion" \
+        -o json | jq -r '.[-1]')
     fi
 
-    if [ "$(az aks show --name ${CLUSTER_NAME} --resource-group ${RESOURCE_GROUP} --query "name == '${CLUSTER_NAME}'" || echo "empty")" == "true" ]; then
-      echo "Kubernetes cluster exists..."
-    else
-      if [ -z "${AKS_VERSION}" ]; then
-        echo "Finding Kubernetes version"
-        AKS_VERSION=$(az aks get-versions \
-          --location northeurope \
-          --query "orchestrators[?contains(orchestratorVersion, '1.24.')].orchestratorVersion" \
-          -o json | jq -r '.[-1]')
-      fi
+    echo "Creating Kubernetes instance with v${AKS_VERSION}..."
+    az aks create \
+      --enable-cluster-autoscaler \
+      --enable-managed-identity \
+      --location "${LOCATION}" \
+      --kubernetes-version "${AKS_VERSION}" \
+      --max-count "50" \
+      --max-pods "110" \
+      --min-count "1" \
+      --name "${CLUSTER_NAME}" \
+      --node-osdisk-size "100" \
+      --node-vm-size "${K8S_NODE_VM_SIZE}" \
+      --nodepool-labels gitpod.io/workload_meta=true gitpod.io/workload_ide=true \
+      --nodepool-name "${SERVICES_POOL}" \
+      --resource-group "${RESOURCE_GROUP}" \
+      --no-ssh-key \
+      --vm-set-type "VirtualMachineScaleSets"
+  fi
 
-      echo "Creating Kubernetes instance with v${AKS_VERSION}..."
-      az aks create \
-        --enable-cluster-autoscaler \
-        --enable-managed-identity \
-        --location "${LOCATION}" \
-        --kubernetes-version "${AKS_VERSION}" \
-        --max-count "50" \
-        --max-pods "110" \
-        --min-count "1" \
-        --name "${CLUSTER_NAME}" \
-        --node-osdisk-size "100" \
-        --node-vm-size "${K8S_NODE_VM_SIZE}" \
-        --nodepool-labels gitpod.io/workload_meta=true gitpod.io/workload_ide=true \
-        --nodepool-name "${SERVICES_POOL}" \
-        --resource-group "${RESOURCE_GROUP}" \
-        --no-ssh-key \
-        --vm-set-type "VirtualMachineScaleSets"
+  if [ "$(az aks nodepool show --cluster-name ${CLUSTER_NAME} --name ${WORKSPACES_POOL} --resource-group ${RESOURCE_GROUP} --query "name == '${WORKSPACES_POOL}'" || echo "empty")" == "true" ]; then
+    echo "Node pool ${WORKSPACES_POOL} exists..."
+  else
+    echo "Creating ${WORKSPACES_POOL} node pool..."
+
+    az aks nodepool add \
+      --cluster-name "${CLUSTER_NAME}" \
+      --enable-cluster-autoscaler \
+      --kubernetes-version "${AKS_VERSION}" \
+      --labels gitpod.io/workload_workspace_services=true gitpod.io/workload_workspace_regular=true gitpod.io/workload_workspace_headless=true \
+      --max-count "50" \
+      --max-pods "110" \
+      --min-count "1" \
+      --name "${WORKSPACES_POOL}" \
+      --node-osdisk-size "100" \
+      --node-vm-size "${K8S_NODE_VM_SIZE}" \
+      --resource-group "${RESOURCE_GROUP}"
+  fi
+
+  setup_kubectl
+
+  # Create secret with container registry credentials
+  if [ -n "${IMAGE_PULL_SECRET_FILE}" ] && [ -f "${IMAGE_PULL_SECRET_FILE}" ]; then
+    if ! kubectl get secret gitpod-image-pull-secret; then
+      kubectl create secret generic gitpod-image-pull-secret \
+        --from-file=.dockerconfigjson="${IMAGE_PULL_SECRET_FILE}" \
+        --type=kubernetes.io/dockerconfigjson >/dev/null 2>&1 || true
     fi
+  fi
 
-    if [ "$(az aks nodepool show --cluster-name ${CLUSTER_NAME} --name ${WORKSPACES_POOL} --resource-group ${RESOURCE_GROUP} --query "name == '${WORKSPACES_POOL}'" || echo "empty")" == "true" ]; then
-      echo "Node pool ${WORKSPACES_POOL} exists..."
-    else
-      echo "Creating ${WORKSPACES_POOL} node pool..."
-
-      az aks nodepool add \
-        --cluster-name "${CLUSTER_NAME}" \
-        --enable-cluster-autoscaler \
-        --kubernetes-version "${AKS_VERSION}" \
-        --labels gitpod.io/workload_workspace_services=true gitpod.io/workload_workspace_regular=true gitpod.io/workload_workspace_headless=true \
-        --max-count "50" \
-        --max-pods "110" \
-        --min-count "1" \
-        --name "${WORKSPACES_POOL}" \
-        --node-osdisk-size "100" \
-        --node-vm-size "${K8S_NODE_VM_SIZE}" \
-        --resource-group "${RESOURCE_GROUP}"
-      fi
-
-    setup_kubectl
-
-    # Create secret with container registry credentials
-    if [ -n "${IMAGE_PULL_SECRET_FILE}" ] && [ -f "${IMAGE_PULL_SECRET_FILE}" ]; then
-        if ! kubectl get secret gitpod-image-pull-secret; then
-            kubectl create secret generic gitpod-image-pull-secret \
-                --from-file=.dockerconfigjson="${IMAGE_PULL_SECRET_FILE}" \
-                --type=kubernetes.io/dockerconfigjson  >/dev/null 2>&1 || true
-        fi
-    fi
-
-    install_cert_manager
-    setup_container_registry
-    setup_managed_dns
-    setup_mysql_database
-    setup_storage
-    output_config
+  install_cert_manager
+  setup_container_registry
+  setup_managed_dns
+  setup_mysql_database
+  setup_storage
+  output_config
 }
 
 function install_cert_manager() {
@@ -182,10 +182,10 @@ function output_config() {
   STORAGE_ACCOUNT_KEY=$(az storage account keys list \
     --account-name "${STORAGE_ACCOUNT_NAME}" \
     --resource-group "${RESOURCE_GROUP}" \
-    --output json \
-      | jq -r '.[] | select(.keyName == "key1") | .value')
+    --output json |
+    jq -r '.[] | select(.keyName == "key1") | .value')
 
-  cat << EOF
+  cat <<EOF
 
 
 ==========================
@@ -231,7 +231,7 @@ Issuer type: Cluster issuer
 EOF
 
   if [ -n "${SETUP_MANAGED_DNS}" ] && [ "${SETUP_MANAGED_DNS}" == "true" ]; then
-  cat << EOF
+    cat <<EOF
 ===========
 DNS Records
 ===========
@@ -240,15 +240,15 @@ Domain Name: ${DOMAIN}
 Nameserver(s):
 $(az network dns zone show --name ${DOMAIN} --resource-group ${RESOURCE_GROUP} --query "nameServers" -o tsv)
 EOF
-fi
+  fi
 }
 
 function login() {
   echo "Log into Azure..."
-  az login
-
-  echo "Set Azure subscription..."
-  az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
+  az login --use-device-code
+  token=$(az account get-access-token)
+  AZURE_SUBSCRIPTION_ID=$(echo $token | jq -r '.subscription')
+  AZURE_TENANT_ID=$(echo $token | jq -r '.tenant')
 }
 
 function setup_container_registry() {
@@ -316,7 +316,7 @@ function setup_managed_dns() {
       bitnami/external-dns
 
     echo "Installing cert-manager certificate issuer..."
-    envsubst < "${DIR}/charts/assets/issuer.yaml" | kubectl apply -f -
+    envsubst <"${DIR}/charts/assets/issuer.yaml" | kubectl apply -f -
   fi
 }
 
@@ -385,7 +385,7 @@ function setup_storage() {
     --name "${STORAGE_ACCOUNT_NAME}" \
     --output tsv \
     --query id \
-    --resource-group "${RESOURCE_GROUP}" )
+    --resource-group "${RESOURCE_GROUP}")
 
   echo "Allow Kubernetes managed identity to access the storage account..."
   az role assignment create \
@@ -425,15 +425,15 @@ function uninstall() {
 
 function main() {
   case $1 in
-    '--install')
-      install
+  '--install')
+    install
     ;;
-    '--uninstall')
-      uninstall
+  '--uninstall')
+    uninstall
     ;;
-    *)
-      echo "Unknown command: $1"
-      echo "Usage: $0 [--install|--uninstall]"
+  *)
+    echo "Unknown command: $1"
+    echo "Usage: $0 [--install|--uninstall]"
     ;;
   esac
   echo "Done"
