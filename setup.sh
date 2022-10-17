@@ -16,7 +16,8 @@ set -a
 SERVICES_POOL="services"
 WORKSPACES_POOL="workspaces"
 
-K8S_NODE_VM_SIZE=${K8S_NODE_VM_SIZE:="Standard_D2_v3"}
+# K8S_NODE_VM_SIZE=${K8S_NODE_VM_SIZE:="Standard_D2_v3"}
+K8S_NODE_VM_SIZE=${K8S_NODE_VM_SIZE:="Standard_B2s"}
 
 function check_prerequisites() {
   # if [ -z "${AZURE_SUBSCRIPTION_ID}" ]; then
