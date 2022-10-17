@@ -16,7 +16,7 @@ set -a
 SERVICES_POOL="services"
 WORKSPACES_POOL="workspaces"
 
-K8S_NODE_VM_SIZE=${K8S_NODE_VM_SIZE:="Standard_D4_v3"}
+K8S_NODE_VM_SIZE=${K8S_NODE_VM_SIZE:="Standard_D2_v3"}
 
 function check_prerequisites() {
   # if [ -z "${AZURE_SUBSCRIPTION_ID}" ]; then
@@ -340,9 +340,9 @@ function setup_mysql_database() {
       --name "${MYSQL_INSTANCE_NAME}" \
       --public Enabled \
       --resource-group "${RESOURCE_GROUP}" \
-      --sku-name GP_Gen5_2 \
+      --sku-name B_Gen5_1  \
       --ssl-enforcement Disabled \
-      --storage-size 20480 \
+      --storage-size 5120 \
       --version "5.7"
   fi
 
